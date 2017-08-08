@@ -52,9 +52,9 @@ int main(int argc, char const *argv[]) {
     const char *dev;						/* The device to sniff on */
     char errbuf[PCAP_ERRBUF_SIZE];	/* Error string */
     struct bpf_program fp;			/* The compiled filter */
+    struct pcap_pkthdr header;		/* The header that pcap gives us */
     bpf_u_int32 mask;				/* Our netmask */
     bpf_u_int32 net;				/* Our IP */
-    struct pcap_pkthdr header;		/* The header that pcap gives us */
     u_char packet[100];			/* The actual packet */
     char *recvPacket;
 
@@ -72,10 +72,10 @@ int main(int argc, char const *argv[]) {
     dev = argv[1];
 
   /* Error 제어 { */
-    if (dev == NULL) { fprintf(stderr, "Couldn't find default device: %s\n", errbuf); return(2); }
-    if (pcap_lookupnet(dev, &net, &mask, errbuf) == -1) { fprintf(stderr, "Couldn't get netmask for device %s: %s\n", dev, errbuf); net = 0; mask = 0; }
+    if(dev == NULL) { fprintf(stderr, "Couldn't find default device: %s\n", errbuf); return(2); }
+    if(pcap_lookupnet(dev, &net, &mask, errbuf) == -1) { fprintf(stderr, "Couldn't get netmask for device %s: %s\n", dev, errbuf); net = 0; mask = 0; }
     handle = pcap_open_live(dev, BUFSIZ, 1, 1000, errbuf);
-    if (handle == NULL) { fprintf(stderr, "Couldn't open device %s: %s\n", dev, errbuf); return(2); }
+    if(handle == NULL) { fprintf(stderr, "Couldn't open device %s: %s\n", dev, errbuf); return(2); }
   /*}*/
 
 
@@ -99,7 +99,7 @@ int main(int argc, char const *argv[]) {
     // *(ptr+sizeof(eth_hdr)) = (unsigned char*)&arp_hdr;
     USARTWrite(ptr, sizeof(fullarp));
 
-    if (pcap_sendpacket(handle, ptr, sizeof(fullarp)) != 0)
+    if(pcap_sendpacket(handle, ptr, sizeof(fullarp)) != 0)
     {
         printf("Error sending the packet: %s\n", pcap_geterr(handle));
         return 2;
@@ -113,13 +113,23 @@ int main(int argc, char const *argv[]) {
 		if(chk != 1 ) continue;
         if(recvPacket[12] == 8 && recvPacket[13] == 6)    {
             if(recvPacket[20] == 0 && recvPacket[21] == 2) {
-                memcpy(senderMac, recvPacket + 22, 6);
+                memcpy(fullarp.eth_hdr.h_dest, recvPacket + 22, 6);
                 break;
             }
         }
 	}
 
-    printf("%s\n", ether_ntoa((const struct ether_addr*)senderMac));
+    while(1) {
+        if(pcap_sendpacket(handle, ptr, sizeof(fullarp)) != 0)
+        {
+            printf("Error sending the packet: %s\n", pcap_geterr(handle));
+            return 2;
+        }
+        puts("Go");
+        sleep(1);
+    }
+
+    // printf("%s\n", ether_ntoa((const struct ether_addr*)senderMac));
 
 
     // printf("\n%d\n", eth_hdr.h_proto);
